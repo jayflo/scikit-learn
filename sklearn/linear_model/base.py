@@ -15,6 +15,7 @@ Generalized Linear models.
 from __future__ import division
 from abc import ABCMeta, abstractmethod
 import numbers
+import warnings
 
 import numpy as np
 import scipy.sparse as sp
@@ -40,24 +41,32 @@ from ..utils.validation import NotFittedError, check_is_fitted
 ### should be squashed into its respective objects.
 
 
-def sparse_center_data(X, y, fit_intercept, normalize=False):
+def sparse_center_data(X, y, fit_intercept, normalize=False,
+                       standardize=False):
     """
     Compute information needed to center data to have mean zero along
     axis 0. Be aware that X will not be centered since it would break
     the sparsity, but will be normalized if asked so.
     """
-    if fit_intercept:
+    if normalize:
+        warnings.warn("'normalize' will be removed in 0.16.3. Instead"
+                      "use 'standardize' which operates independently"
+                      "of 'fit_intercept'.", DeprecationWarning)
+    standardize = (fit_intercept and normalize) or standardize
+
+    X_std = None
+    if fit_intercept or standardize:
         # we might require not to change the csr matrix sometimes
-        # store a copy if normalize is True.
+        # store a copy if standardize is True.
         # Change dtype to float64 since mean_variance_axis accepts
         # it that way.
         if sp.isspmatrix(X) and X.getformat() == 'csr':
-            X = sp.csr_matrix(X, copy=normalize, dtype=np.float64)
+            X = sp.csr_matrix(X, copy=standardize, dtype=np.float64)
         else:
-            X = sp.csc_matrix(X, copy=normalize, dtype=np.float64)
+            X = sp.csc_matrix(X, copy=standardize, dtype=np.float64)
 
         X_mean, X_var = mean_variance_axis(X, axis=0)
-        if normalize:
+        if standardize:
             # transform variance to std in-place
             # XXX: currently scaled to variance=n_samples to match center_data
             X_var *= X.shape[0]
@@ -65,20 +74,19 @@ def sparse_center_data(X, y, fit_intercept, normalize=False):
             del X_var
             X_std[X_std == 0] = 1
             inplace_column_scale(X, 1. / X_std)
-        else:
-            X_std = np.ones(X.shape[1])
+    if fit_intercept:
         y_mean = y.mean(axis=0)
         y = y - y_mean
     else:
         X_mean = np.zeros(X.shape[1])
-        X_std = np.ones(X.shape[1])
         y_mean = 0. if y.ndim == 1 else np.zeros(y.shape[1], dtype=X.dtype)
-
+    if X_std is None:
+        X_std = np.ones(X.shape[1])
     return X, y, X_mean, y_mean, X_std
 
 
-def center_data(X, y, fit_intercept, normalize=False, copy=True,
-                sample_weight=None):
+def center_data(X, y, fit_intercept, normalize=False,
+                copy=True, sample_weight=None, standardize=False):
     """
     Centers data to have mean zero along axis 0. This is here because
     nearly all linear models will want their data to be centered.
@@ -86,8 +94,15 @@ def center_data(X, y, fit_intercept, normalize=False, copy=True,
     If sample_weight is not None, then the weighted mean of X and y
     is zero, and not the mean itself
     """
+    if normalize:
+        warnings.warn("'normalize' will be removed in 0.16.3. Instead"
+                      "use 'standardize' which operates independently"
+                      "of 'fit_intercept'.", DeprecationWarning)
+    standardize = (fit_intercept and normalize) or standardize
+
     X = as_float_array(X, copy)
-    if fit_intercept:
+    X_std = None
+    if fit_intercept or standardize:
         if isinstance(sample_weight, numbers.Number):
             sample_weight = None
         if sp.issparse(X):
@@ -95,20 +110,21 @@ def center_data(X, y, fit_intercept, normalize=False, copy=True,
             X_std = np.ones(X.shape[1])
         else:
             X_mean = np.average(X, axis=0, weights=sample_weight)
-            X -= X_mean
-            if normalize:
-                # XXX: currently scaled to variance=n_samples
+            tmp = X - X_mean
+            if fit_intercept:
+                X = tmp
+            if standardize:
                 X_std = np.sqrt(np.sum(X ** 2, axis=0))
                 X_std[X_std == 0] = 1
                 X /= X_std
-            else:
-                X_std = np.ones(X.shape[1])
+    if fit_intercept:
         y_mean = np.average(y, axis=0, weights=sample_weight)
         y = y - y_mean
     else:
         X_mean = np.zeros(X.shape[1])
-        X_std = np.ones(X.shape[1])
         y_mean = 0. if y.ndim == 1 else np.zeros(y.shape[1], dtype=X.dtype)
+    if X_std is None:
+        X_std = np.ones(X.shape[1])
     return X, y, X_mean, y_mean, X_std
 
 
