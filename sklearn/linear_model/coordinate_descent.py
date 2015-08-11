@@ -33,7 +33,7 @@ from . import cd_fast
 # Paths functions
 
 def _alpha_grid(X, y, Xy=None, l1_ratio=1.0, fit_intercept=True,
-                eps=1e-3, n_alphas=100, normalize=False, copy_X=True):
+                eps=1e-3, n_alphas=100, standardize=False, copy_X=True):
     """ Compute the grid of alpha values for elastic net parameter search
 
     Parameters
@@ -64,7 +64,7 @@ def _alpha_grid(X, y, Xy=None, l1_ratio=1.0, fit_intercept=True,
     fit_intercept : boolean, default True
         Whether to fit an intercept or not
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -75,20 +75,20 @@ def _alpha_grid(X, y, Xy=None, l1_ratio=1.0, fit_intercept=True,
     sparse_center = False
     if Xy is None:
         X_sparse = sparse.isspmatrix(X)
-        sparse_center = X_sparse and (fit_intercept or normalize)
+        sparse_center = X_sparse and (fit_intercept or standardize)
         X = check_array(X, 'csc',
                         copy=(copy_X and fit_intercept and not X_sparse))
         if not X_sparse:
             # X can be touched inplace thanks to the above line
-            X, y, _, _, _ = center_data(X, y, fit_intercept,
-                                        normalize, copy=False)
+            X, y, _, _, _ = center_data(X, y, fit_intercept, standardize,
+                                        copy=False)
         Xy = safe_sparse_dot(X.T, y, dense_output=True)
 
         if sparse_center:
             # Workaround to find alpha_max for sparse matrices.
             # since we should not destroy the sparsity of such matrices.
             _, _, X_mean, _, X_std = sparse_center_data(X, y, fit_intercept,
-                                                        normalize)
+                                                        standardize)
             mean_dot = X_mean * np.sum(y)
 
     if Xy.ndim == 1:
@@ -97,7 +97,7 @@ def _alpha_grid(X, y, Xy=None, l1_ratio=1.0, fit_intercept=True,
     if sparse_center:
         if fit_intercept:
             Xy -= mean_dot[:, np.newaxis]
-        if normalize:
+        if standardize:
             Xy /= X_std[:, np.newaxis]
 
     alpha_max = (np.sqrt(np.sum(Xy ** 2, axis=1)).max() /
@@ -382,14 +382,14 @@ def enet_path(X, y, l1_ratio=0.5, eps=1e-3, n_alphas=100, alphas=None,
 
     # X should be normalized and fit already.
     X, y, X_mean, y_mean, X_std, precompute, Xy = \
-        _pre_fit(X, y, Xy, precompute, normalize=False, fit_intercept=False,
-                 copy=False)
+        _pre_fit(X, y, Xy, precompute, fit_intercept=False, copy=False,
+                 standardize=False)
     if alphas is None:
         # No need to normalize of fit_intercept: it has been done
         # above
         alphas = _alpha_grid(X, y, Xy=Xy, l1_ratio=l1_ratio,
                              fit_intercept=False, eps=eps, n_alphas=n_alphas,
-                             normalize=False, copy_X=False)
+                             standardize=False, copy_X=False)
     else:
         alphas = np.sort(alphas)[::-1]  # make sure alphas are properly ordered
 
@@ -512,7 +512,7 @@ class ElasticNet(LinearModel, RegressorMixin):
         Whether the intercept should be estimated or not. If ``False``, the
         data is assumed to be already centered.
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     precompute : True | False | 'auto' | array-like
@@ -585,12 +585,17 @@ class ElasticNet(LinearModel, RegressorMixin):
     def __init__(self, alpha=1.0, l1_ratio=0.5, fit_intercept=True,
                  normalize=False, precompute=False, max_iter=1000,
                  copy_X=True, tol=1e-4, warm_start=False, positive=False,
-                 random_state=None, selection='cyclic'):
+                 random_state=None, selection='cyclic', standardize=False):
         self.alpha = alpha
         self.l1_ratio = l1_ratio
         self.coef_ = None
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize or (fit_intercept and normalize)
         self.precompute = precompute
         self.max_iter = max_iter
         self.copy_X = copy_X
@@ -638,7 +643,7 @@ class ElasticNet(LinearModel, RegressorMixin):
                          multi_output=True, y_numeric=True)
 
         X, y, X_mean, y_mean, X_std, precompute, Xy = \
-            _pre_fit(X, y, None, self.precompute, self.normalize,
+            _pre_fit(X, y, None, self.precompute, self.standardize,
                      self.fit_intercept, copy=True)
 
         if y.ndim == 1:
@@ -673,7 +678,7 @@ class ElasticNet(LinearModel, RegressorMixin):
                           l1_ratio=self.l1_ratio, eps=None,
                           n_alphas=None, alphas=[self.alpha],
                           precompute=precompute, Xy=this_Xy,
-                          fit_intercept=False, normalize=False, copy_X=True,
+                          fit_intercept=False, standardize=False, copy_X=True,
                           verbose=False, tol=self.tol, positive=self.positive,
                           X_mean=X_mean, X_std=X_std, return_n_iter=True,
                           coef_init=coef_[k], max_iter=self.max_iter,
@@ -761,7 +766,7 @@ class Lasso(ElasticNet):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -824,7 +829,7 @@ class Lasso(ElasticNet):
     >>> clf = linear_model.Lasso(alpha=0.1)
     >>> clf.fit([[0,0], [1, 1], [2, 2]], [0, 1, 2])
     Lasso(alpha=0.1, copy_X=True, fit_intercept=True, max_iter=1000,
-       normalize=False, positive=False, precompute=False, random_state=None,
+       standardize=False, positive=False, precompute=False, random_state=None,
        selection='cyclic', tol=0.0001, warm_start=False)
     >>> print(clf.coef_)
     [ 0.85  0.  ]
@@ -852,13 +857,13 @@ class Lasso(ElasticNet):
     def __init__(self, alpha=1.0, fit_intercept=True, normalize=False,
                  precompute=False, copy_X=True, max_iter=1000,
                  tol=1e-4, warm_start=False, positive=False,
-                 random_state=None, selection='cyclic'):
+                 random_state=None, selection='cyclic', standardize=False):
         super(Lasso, self).__init__(
             alpha=alpha, l1_ratio=1.0, fit_intercept=fit_intercept,
             normalize=normalize, precompute=precompute, copy_X=copy_X,
             max_iter=max_iter, tol=tol, warm_start=warm_start,
             positive=positive, random_state=random_state,
-            selection=selection)
+            selection=selection, standardize=standardize)
 
 
 ###############################################################################
@@ -912,7 +917,7 @@ def _path_residuals(X, y, train, test, path, path_params, alphas=None,
     X_test = X[test]
     y_test = y[test]
     fit_intercept = path_params['fit_intercept']
-    normalize = path_params['normalize']
+    standardize = path_params['standardize']
 
     if y.ndim == 1:
         precompute = path_params['precompute']
@@ -922,7 +927,7 @@ def _path_residuals(X, y, train, test, path, path_params, alphas=None,
         precompute = False
 
     X_train, y_train, X_mean, y_mean, X_std, precompute, Xy = \
-        _pre_fit(X_train, y_train, None, precompute, normalize, fit_intercept,
+        _pre_fit(X_train, y_train, None, precompute, standardize, fit_intercept,
                  copy=False)
 
     path_params = path_params.copy()
@@ -948,7 +953,7 @@ def _path_residuals(X, y, train, test, path, path_params, alphas=None,
         y_mean = np.atleast_1d(y_mean)
         y_test = y_test[:, np.newaxis]
 
-    if normalize:
+    if standardize:
         nonzeros = np.flatnonzero(X_std)
         coefs[:, nonzeros] /= X_std[nonzeros][:, np.newaxis]
 
@@ -976,12 +981,18 @@ class LinearModelCV(six.with_metaclass(ABCMeta, LinearModel)):
     def __init__(self, eps=1e-3, n_alphas=100, alphas=None, fit_intercept=True,
                  normalize=False, precompute='auto', max_iter=1000, tol=1e-4,
                  copy_X=True, cv=None, verbose=False, n_jobs=1,
-                 positive=False, random_state=None, selection='cyclic'):
+                 positive=False, random_state=None, selection='cyclic',
+                 standardize=False):
         self.eps = eps
         self.n_alphas = n_alphas
         self.alphas = alphas
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize or (fit_intercept and normalize)
         self.precompute = precompute
         self.max_iter = max_iter
         self.tol = tol
@@ -1090,7 +1101,7 @@ class LinearModelCV(six.with_metaclass(ABCMeta, LinearModel)):
                     X, y, l1_ratio=l1_ratio,
                     fit_intercept=self.fit_intercept,
                     eps=self.eps, n_alphas=self.n_alphas,
-                    normalize=self.normalize,
+                    standardize=self.standardize,
                     copy_X=self.copy_X))
         else:
             # Making sure alphas is properly ordered.
@@ -1233,7 +1244,7 @@ class LassoCV(LinearModelCV, RegressorMixin):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -1285,13 +1296,15 @@ class LassoCV(LinearModelCV, RegressorMixin):
     def __init__(self, eps=1e-3, n_alphas=100, alphas=None, fit_intercept=True,
                  normalize=False, precompute='auto', max_iter=1000, tol=1e-4,
                  copy_X=True, cv=None, verbose=False, n_jobs=1,
-                 positive=False, random_state=None, selection='cyclic'):
+                 positive=False, random_state=None, selection='cyclic',
+                 standardize=False):
         super(LassoCV, self).__init__(
             eps=eps, n_alphas=n_alphas, alphas=alphas,
             fit_intercept=fit_intercept, normalize=normalize,
             precompute=precompute, max_iter=max_iter, tol=tol, copy_X=copy_X,
             cv=cv, verbose=verbose, n_jobs=n_jobs, positive=positive,
-            random_state=random_state, selection=selection)
+            random_state=random_state, selection=selection,
+            standardize=standardize)
 
 
 class ElasticNetCV(LinearModelCV, RegressorMixin):
@@ -1372,7 +1385,7 @@ class ElasticNetCV(LinearModelCV, RegressorMixin):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -1441,13 +1454,18 @@ class ElasticNetCV(LinearModelCV, RegressorMixin):
                  fit_intercept=True, normalize=False, precompute='auto',
                  max_iter=1000, tol=1e-4, cv=None, copy_X=True,
                  verbose=0, n_jobs=1, positive=False, random_state=None,
-                 selection='cyclic'):
+                 selection='cyclic', standardize=False):
         self.l1_ratio = l1_ratio
         self.eps = eps
         self.n_alphas = n_alphas
         self.alphas = alphas
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize
         self.precompute = precompute
         self.max_iter = max_iter
         self.tol = tol
@@ -1497,7 +1515,7 @@ class MultiTaskElasticNet(Lasso):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -1547,7 +1565,7 @@ class MultiTaskElasticNet(Lasso):
     >>> clf.fit([[0,0], [1, 1], [2, 2]], [[0, 0], [1, 1], [2, 2]])
     ... #doctest: +NORMALIZE_WHITESPACE
     MultiTaskElasticNet(alpha=0.1, copy_X=True, fit_intercept=True,
-            l1_ratio=0.5, max_iter=1000, normalize=False, random_state=None,
+            l1_ratio=0.5, max_iter=1000, standardize=False, random_state=None,
             selection='cyclic', tol=0.0001, warm_start=False)
     >>> print(clf.coef_)
     [[ 0.45663524  0.45612256]
@@ -1573,7 +1591,12 @@ class MultiTaskElasticNet(Lasso):
         self.alpha = alpha
         self.coef_ = None
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize or (fit_intercept and normalize)
         self.max_iter = max_iter
         self.copy_X = copy_X
         self.tol = tol
@@ -1621,7 +1644,7 @@ class MultiTaskElasticNet(Lasso):
                              % (n_samples, y.shape[0]))
 
         X, y, X_mean, y_mean, X_std = center_data(
-            X, y, self.fit_intercept, self.normalize, copy=False)
+            X, y, self.fit_intercept, self.standardize, copy=False)
 
         if not self.warm_start or self.coef_ is None:
             self.coef_ = np.zeros((n_tasks, n_features), dtype=np.float64,
@@ -1676,7 +1699,7 @@ class MultiTaskLasso(MultiTaskElasticNet):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -1724,8 +1747,8 @@ class MultiTaskLasso(MultiTaskElasticNet):
     >>> clf = linear_model.MultiTaskLasso(alpha=0.1)
     >>> clf.fit([[0,0], [1, 1], [2, 2]], [[0, 0], [1, 1], [2, 2]])
     MultiTaskLasso(alpha=0.1, copy_X=True, fit_intercept=True, max_iter=1000,
-            normalize=False, random_state=None, selection='cyclic', tol=0.0001,
-            warm_start=False)
+            standardize=False, random_state=None, selection='cyclic',
+            tol=0.0001, warm_start=False)
     >>> print(clf.coef_)
     [[ 0.89393398  0.        ]
      [ 0.89393398  0.        ]]
@@ -1745,11 +1768,16 @@ class MultiTaskLasso(MultiTaskElasticNet):
     """
     def __init__(self, alpha=1.0, fit_intercept=True, normalize=False,
                  copy_X=True, max_iter=1000, tol=1e-4, warm_start=False,
-                 random_state=None, selection='cyclic'):
+                 random_state=None, selection='cyclic', standardize=False):
         self.alpha = alpha
         self.coef_ = None
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize
         self.max_iter = max_iter
         self.copy_X = copy_X
         self.tol = tol
@@ -1800,7 +1828,7 @@ class MultiTaskElasticNetCV(LinearModelCV, RegressorMixin):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If ``True``, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -1874,7 +1902,7 @@ class MultiTaskElasticNetCV(LinearModelCV, RegressorMixin):
     ... #doctest: +NORMALIZE_WHITESPACE
     MultiTaskElasticNetCV(alphas=None, copy_X=True, cv=None, eps=0.001,
            fit_intercept=True, l1_ratio=0.5, max_iter=1000, n_alphas=100,
-           n_jobs=1, normalize=False, random_state=None, selection='cyclic',
+           n_jobs=1, standardize=False, random_state=None, selection='cyclic',
            tol=0.0001, verbose=0)
     >>> print(clf.coef_)
     [[ 0.52875032  0.46958558]
@@ -1906,7 +1934,12 @@ class MultiTaskElasticNetCV(LinearModelCV, RegressorMixin):
         self.n_alphas = n_alphas
         self.alphas = alphas
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize or normalize
         self.max_iter = max_iter
         self.tol = tol
         self.cv = cv

@@ -41,19 +41,12 @@ from ..utils.validation import NotFittedError, check_is_fitted
 ### should be squashed into its respective objects.
 
 
-def sparse_center_data(X, y, fit_intercept, normalize=False,
-                       standardize=False):
+def sparse_center_data(X, y, fit_intercept, standardize=False):
     """
     Compute information needed to center data to have mean zero along
     axis 0. Be aware that X will not be centered since it would break
     the sparsity, but will be normalized if asked so.
     """
-    if normalize:
-        warnings.warn("'normalize' will be removed in 0.16.3. Instead"
-                      "use 'standardize' which operates independently"
-                      "of 'fit_intercept'.", DeprecationWarning)
-    standardize = (fit_intercept and normalize) or standardize
-
     X_std = None
     if fit_intercept or standardize:
         # we might require not to change the csr matrix sometimes
@@ -85,8 +78,8 @@ def sparse_center_data(X, y, fit_intercept, normalize=False,
     return X, y, X_mean, y_mean, X_std
 
 
-def center_data(X, y, fit_intercept, normalize=False,
-                copy=True, sample_weight=None, standardize=False):
+def center_data(X, y, fit_intercept, standardize=False, copy=True,
+                sample_weight=None):
     """
     Centers data to have mean zero along axis 0. This is here because
     nearly all linear models will want their data to be centered.
@@ -94,12 +87,6 @@ def center_data(X, y, fit_intercept, normalize=False,
     If sample_weight is not None, then the weighted mean of X and y
     is zero, and not the mean itself
     """
-    if normalize:
-        warnings.warn("'normalize' will be removed in 0.16.3. Instead"
-                      "use 'standardize' which operates independently"
-                      "of 'fit_intercept'.", DeprecationWarning)
-    standardize = (fit_intercept and normalize) or standardize
-
     X = as_float_array(X, copy)
     X_std = None
     if fit_intercept or standardize:
@@ -331,7 +318,7 @@ class LinearRegression(LinearModel, RegressorMixin):
         to false, no intercept will be used in calculations
         (e.g. data is expected to be already centered).
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If True, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -361,9 +348,14 @@ class LinearRegression(LinearModel, RegressorMixin):
     """
 
     def __init__(self, fit_intercept=True, normalize=False, copy_X=True,
-                 n_jobs=1):
+                 n_jobs=1, standardize=False):
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.fit_intercept = fit_intercept
         self.normalize = normalize
+        self.standardize = standardize or (fit_intercept and normalize)
         self.copy_X = copy_X
         self.n_jobs = n_jobs
 
@@ -388,7 +380,7 @@ class LinearRegression(LinearModel, RegressorMixin):
                          y_numeric=True, multi_output=True)
 
         X, y, X_mean, y_mean, X_std = self._center_data(
-            X, y, self.fit_intercept, self.normalize, self.copy_X)
+            X, y, self.fit_intercept, self.standardize, self.copy_X)
 
         if sp.issparse(X):
             if y.ndim < 2:
@@ -413,17 +405,17 @@ class LinearRegression(LinearModel, RegressorMixin):
         return self
 
 
-def _pre_fit(X, y, Xy, precompute, normalize, fit_intercept, copy):
+def _pre_fit(X, y, Xy, precompute, standardize, fit_intercept, copy):
     """Aux function used at beginning of fit in linear models"""
     n_samples, n_features = X.shape
     if sparse.isspmatrix(X):
         precompute = False
         X, y, X_mean, y_mean, X_std = sparse_center_data(
-            X, y, fit_intercept, normalize)
+            X, y, fit_intercept, standardize)
     else:
         # copy was done in fit if necessary
         X, y, X_mean, y_mean, X_std = center_data(
-            X, y, fit_intercept, normalize, copy=copy)
+            X, y, fit_intercept, standardize, copy=copy)
 
     if hasattr(precompute, '__array__') \
             and not np.allclose(X_mean, np.zeros(n_features)) \

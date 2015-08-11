@@ -63,7 +63,7 @@ class BayesianRidge(LinearModel, RegressorMixin):
         (e.g. data is expected to be already centered).
         Default is True.
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If True, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True
@@ -95,7 +95,7 @@ class BayesianRidge(LinearModel, RegressorMixin):
     ... # doctest: +NORMALIZE_WHITESPACE
     BayesianRidge(alpha_1=1e-06, alpha_2=1e-06, compute_score=False,
             copy_X=True, fit_intercept=True, lambda_1=1e-06, lambda_2=1e-06,
-            n_iter=300, normalize=False, tol=0.001, verbose=False)
+            n_iter=300, standardize=False, tol=0.001, verbose=False)
     >>> clf.predict([[1, 1]])
     array([ 1.])
 
@@ -107,7 +107,7 @@ class BayesianRidge(LinearModel, RegressorMixin):
     def __init__(self, n_iter=300, tol=1.e-3, alpha_1=1.e-6, alpha_2=1.e-6,
                  lambda_1=1.e-6, lambda_2=1.e-6, compute_score=False,
                  fit_intercept=True, normalize=False, copy_X=True,
-                 verbose=False):
+                 verbose=False, standardize=False):
         self.n_iter = n_iter
         self.tol = tol
         self.alpha_1 = alpha_1
@@ -116,7 +116,12 @@ class BayesianRidge(LinearModel, RegressorMixin):
         self.lambda_2 = lambda_2
         self.compute_score = compute_score
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize or (fit_intercept and normalize)
         self.copy_X = copy_X
         self.verbose = verbose
 
@@ -136,7 +141,7 @@ class BayesianRidge(LinearModel, RegressorMixin):
         """
         X, y = check_X_y(X, y, dtype=np.float64, y_numeric=True)
         X, y, X_mean, y_mean, X_std = self._center_data(
-            X, y, self.fit_intercept, self.normalize, self.copy_X)
+            X, y, self.fit_intercept, self.standardize, self.copy_X)
         n_samples, n_features = X.shape
 
         ### Initialization of the values of the parameters
@@ -267,7 +272,7 @@ class ARDRegression(LinearModel, RegressorMixin):
         (e.g. data is expected to be already centered).
         Default is True.
 
-    normalize : boolean, optional, default False
+    standardize : boolean, optional, default False
         If True, the regressors X will be normalized before regression.
 
     copy_X : boolean, optional, default True.
@@ -301,7 +306,7 @@ class ARDRegression(LinearModel, RegressorMixin):
     ... # doctest: +NORMALIZE_WHITESPACE
     ARDRegression(alpha_1=1e-06, alpha_2=1e-06, compute_score=False,
             copy_X=True, fit_intercept=True, lambda_1=1e-06, lambda_2=1e-06,
-            n_iter=300, normalize=False, threshold_lambda=10000.0, tol=0.001,
+            n_iter=300, standardize=False, threshold_lambda=10000.0, tol=0.001,
             verbose=False)
     >>> clf.predict([[1, 1]])
     array([ 1.])
@@ -314,11 +319,16 @@ class ARDRegression(LinearModel, RegressorMixin):
     def __init__(self, n_iter=300, tol=1.e-3, alpha_1=1.e-6, alpha_2=1.e-6,
                  lambda_1=1.e-6, lambda_2=1.e-6, compute_score=False,
                  threshold_lambda=1.e+4, fit_intercept=True, normalize=False,
-                 copy_X=True, verbose=False):
+                 copy_X=True, verbose=False, standardize=False):
         self.n_iter = n_iter
         self.tol = tol
         self.fit_intercept = fit_intercept
+        if normalize:
+            warnings.warn("'normalize' will be removed in 0.19. Instead"
+                          "use 'standardize' which operates independently"
+                          "of 'fit_intercept'.", DeprecationWarning)
         self.normalize = normalize
+        self.standardize = standardize or (fit_intercept and standardize)
         self.alpha_1 = alpha_1
         self.alpha_2 = alpha_2
         self.lambda_1 = lambda_1
@@ -352,7 +362,7 @@ class ARDRegression(LinearModel, RegressorMixin):
         coef_ = np.zeros(n_features)
 
         X, y, X_mean, y_mean, X_std = self._center_data(
-            X, y, self.fit_intercept, self.normalize, self.copy_X)
+            X, y, self.fit_intercept, self.standardize, self.copy_X)
 
         ### Launch the convergence loop
         keep_lambda = np.ones(n_features, dtype=bool)
